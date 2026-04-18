@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login | BusAttend</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+    .login-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+    .login-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .login-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+    .login-desc {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-bottom: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-box fade-in">
+    <div class="login-icon">🔒</div>
+    <h1 class="login-title">Admin Access</h1>
+    <p class="login-desc">Enter the passcode to manage enrollments.</p>
+
+    <form class="form" style="padding:0" onsubmit="login(event)">
+      <div class="form-group" style="text-align:left">
+        <label for="passcode">Admin Passcode</label>
+        <input type="password" id="passcode" required autofocus />
+      </div>
+      <div id="errorMsg" class="msg-box msg-error" style="display:none;margin-bottom:1rem">Incorrect passcode</div>
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:0.5rem">Unlock</button>
+      <a href="index.html" class="btn btn-ghost btn-full" style="margin-top:0.5rem">Return to Dashboard</a>
+    </form>
+  </div>
+
+  <script>
+    // Simple client-side gateway
+    const ADMIN_PASSCODE = "admin123"; // Change this if needed!
+
+    function login(e) {
+      e.preventDefault();
+      const code = document.getElementById('passcode').value;
+      
+      if (code === ADMIN_PASSCODE) {
+        localStorage.setItem('isAdmin', 'true');
+        window.location.href = 'enroll.html';
+      } else {
+        document.getElementById('errorMsg').style.display = 'block';
+        setTimeout(() => {
+          document.getElementById('errorMsg').style.display = 'none';
+        }, 3000);
+      }
+    }
+
+    // Auto redirect if already logged in
+    if (localStorage.getItem('isAdmin') === 'true') {
+      window.location.href = 'enroll.html';
+    }
+  </script>
+</body>
+</html>

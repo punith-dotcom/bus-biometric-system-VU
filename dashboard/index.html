@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendance Dashboard | BusAttend</title>
+  <meta name="description" content="Real-time bus biometric attendance dashboard with GPS tracking" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">🚌</div>
+      <span class="logo-text">BusAttend</span>
+    </div>
+    <nav class="nav">
+      <a href="index.html" class="nav-item active"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+      <a href="enroll.html" class="nav-item"><span class="nav-icon">👤</span><span>Enroll / Manage</span></a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="status-dot" id="realtimeStatus"></div>
+      <span id="realtimeLabel">Connecting…</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="page-header">
+      <div>
+        <h1 class="page-title">Attendance Dashboard</h1>
+        <p class="page-sub" id="todayDate">Loading…</p>
+      </div>
+      <div style="display:flex;gap:0.75rem;align-items:center">
+        <select id="busFilter" class="filter-select" onchange="applyFilters()">
+          <option value="">All Buses</option>
+        </select>
+        <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
+      </div>
+    </header>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--green-glass)">🟢</div>
+        <div><div class="stat-label">Time In Today</div><div class="stat-value" id="statLogins">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--red-glass)">🔴</div>
+        <div><div class="stat-label">Time Out Today</div><div class="stat-value" id="statLogouts">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--blue-glass)">🚌</div>
+        <div><div class="stat-label">On Bus Now</div><div class="stat-value" id="statPresent">—</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:var(--purple-glass)">📋</div>
+        <div><div class="stat-label">Total Events Today</div><div class="stat-value" id="statTotal">—</div></div>
+      </div>
+    </div>
+
+    <!-- Bus GPS Location Panel -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-header">
+        <h2 class="card-title">📍 Live Bus Locations</h2>
+        <button class="btn btn-ghost" onclick="loadBusLocations()">↻ Refresh</button>
+      </div>
+      <div id="busLocationGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;padding:0.25rem 0 0.5rem">
+        <div style="color:var(--text-dim);font-size:0.85rem">Loading GPS data…</div>
+      </div>
+    </div>
+
+    <!-- Live feed -->
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Live Attendance Feed</h2>
+        <div class="pulse-badge"><span class="pulse-dot"></span><span>Live</span></div>
+      </div>
+      <div class="table-wrapper">
+        <table id="attendanceTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>UEN</th>
+              <th>Gender</th>
+              <th>Bus No.</th>
+              <th>Driver</th>
+              <th>Event</th>
+              <th>Date</th>
+              <th>Time In</th>
+              <th>Time Out</th>
+              <th>Location</th>
+            </tr>
+          </thead>
+          <tbody id="attendanceBody">
+            <tr id="emptyRow">
+              <td colspan="11" class="empty-state">No attendance records yet. Waiting for scans…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    const RELAY = 'https://qxczihdefhvoljpjnlss.supabase.co/functions/v1/relay';
+
+    document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-IN', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+
+    let allRows = [];
+
+    async function loadAttendance() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const { data, error } = await window._sb
+        .from('attendance')
+        .select('*')
+        .gte('created_at', today.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) { console.error(error); return; }
+      allRows = data || [];
+      populateBusFilter(allRows);
+      renderTable(allRows);
+      updateStats(allRows);
+    }
+
+    async function loadBusLocations() {
+      const grid = document.getElementById('busLocationGrid');
+      try {
+        const res = await fetch(RELAY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bus_location' })
+        });
+        const buses = await res.json();
+        if (!buses.length) {
+          grid.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem">No GPS data recorded yet. GPS fix required on the device.</div>';
+          return;
+        }
+        grid.innerHTML = buses.map(b => {
+          const lat = parseFloat(b.latitude).toFixed(5);
+          const lng = parseFloat(b.longitude).toFixed(5);
+          const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          const dt = new Date(b.created_at);
+          return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:1rem">
+            <div style="font-weight:600;margin-bottom:4px">🚌 ${b.bus_number}</div>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:6px">Driver: ${b.bus_driver}</div>
+            <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:8px">🕐 ${dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+            <div style="font-size:0.75rem;font-family:monospace;color:var(--accent);margin-bottom:8px">${lat}, ${lng}</div>
+            <a href="${mapUrl}" target="_blank" style="font-size:0.78rem;color:var(--accent);text-decoration:none;background:var(--accent-glass,rgba(99,102,241,0.12));padding:4px 10px;border-radius:6px">📍 Open in Maps</a>
+          </div>`;
+        }).join('');
+      } catch(e) {
+        grid.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem">Could not load GPS data.</div>';
+      }
+    }
+
+    function populateBusFilter(rows) {
+      const buses = [...new Set(rows.map(r => r.bus_number).filter(Boolean))].sort();
+      const sel = document.getElementById('busFilter');
+      sel.innerHTML = '<option value="">All Buses</option>' +
+        buses.map(b => `<option value="${b}">${b}</option>`).join('');
+    }
+
+    function applyFilters() {
+      const bus = document.getElementById('busFilter').value;
+      const filtered = bus ? allRows.filter(r => r.bus_number === bus) : allRows;
+      renderTable(filtered);
+      updateStats(filtered);
+    }
+
+    function buildTimePairs(rows) {
+      const map = {};
+      [...rows].reverse().forEach(r => {
+        if (!map[r.finger_id]) map[r.finger_id] = { time_in: null, time_out: null, lat: null, lng: null };
+        if (r.event_type === 'time_in')  { map[r.finger_id].time_in  = new Date(r.created_at); map[r.finger_id].lat = r.latitude; map[r.finger_id].lng = r.longitude; }
+        if (r.event_type === 'time_out') { map[r.finger_id].time_out = new Date(r.created_at); }
+      });
+      return map;
+    }
+
+    function fmtTime(dt) {
+      if (!dt) return '<span style="color:var(--text-dim)">—</span>';
+      return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function mapLink(lat, lng) {
+      if (!lat || !lng) return '<span style="color:var(--text-dim)">—</span>';
+      const url = `https://www.google.com/maps?q=${parseFloat(lat).toFixed(5)},${parseFloat(lng).toFixed(5)}`;
+      return `<a href="${url}" target="_blank" style="color:var(--accent);text-decoration:none;white-space:nowrap">📍 ${parseFloat(lat).toFixed(4)},${parseFloat(lng).toFixed(4)}</a>`;
+    }
+
+    function renderTable(rows) {
+      const tbody = document.getElementById('attendanceBody');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No records. Waiting for scans…</td></tr>';
+        return;
+      }
+      const pairs = buildTimePairs(rows);
+      const seen = new Set();
+      const dedupedRows = [];
+      rows.forEach(r => { if (!seen.has(r.finger_id)) { seen.add(r.finger_id); dedupedRows.push(r); } });
+
+      tbody.innerHTML = dedupedRows.map((r, i) => {
+        const p = pairs[r.finger_id] || {};
+        const isIn = r.event_type === 'time_in';
+        return `<tr class="fade-in">
+          <td>${i+1}</td>
+          <td><strong>${r.user_name}</strong></td>
+          <td><span class="badge-id" style="width:auto;padding:0 8px">${r.uen_number || '—'}</span></td>
+          <td>${r.gender || '—'}</td>
+          <td><span class="badge-id">${r.bus_number || '—'}</span></td>
+          <td>${r.bus_driver || '—'}</td>
+          <td><span class="badge ${isIn ? 'badge-login' : 'badge-logout'}">${isIn ? '🟢 Time In' : '🔴 Time Out'}</span></td>
+          <td>${new Date(r.created_at).toLocaleDateString('en-IN')}</td>
+          <td>${fmtTime(p.time_in)}</td>
+          <td>${fmtTime(p.time_out)}</td>
+          <td>${mapLink(p.lat, p.lng)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function updateStats(rows) {
+      const ins  = rows.filter(r => r.event_type === 'time_in').length;
+      const outs = rows.filter(r => r.event_type === 'time_out').length;
+      document.getElementById('statLogins').textContent  = ins;
+      document.getElementById('statLogouts').textContent = outs;
+      document.getElementById('statPresent').textContent = Math.max(0, ins - outs);
+      document.getElementById('statTotal').textContent   = rows.length;
+    }
+
+    function exportCSV() {
+      if (!allRows.length) return alert('No data to export.');
+      const hdrs = ['ID','Name','UEN','Gender','Bus No.','Driver','Event','Date','Time','Latitude','Longitude'];
+      const lines = [hdrs.join(','), ...allRows.map(r => {
+        const dt = new Date(r.created_at);
+        return [r.id, r.user_name, r.uen_number, r.gender, r.bus_number, r.bus_driver,
+                r.event_type, dt.toLocaleDateString('en-IN'), dt.toLocaleTimeString('en-IN'),
+                r.latitude || '', r.longitude || ''].join(',');
+      })];
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+      a.download = `bus_attendance_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    }
+
+    function subscribeRealtime() {
+      const label = document.getElementById('realtimeLabel');
+      const dot   = document.getElementById('realtimeStatus');
+      window._sb.channel('attendance-live')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, payload => {
+          allRows.unshift(payload.new);
+          populateBusFilter(allRows);
+          applyFilters();
+          loadBusLocations();
+          const firstRow = document.querySelector('#attendanceBody tr');
+          if (firstRow) { firstRow.classList.add('highlight'); setTimeout(() => firstRow.classList.remove('highlight'), 2000); }
+        })
+        .subscribe(status => {
+          dot.classList.toggle('dot-green', status === 'SUBSCRIBED');
+          label.textContent = status === 'SUBSCRIBED' ? 'Live' : 'Reconnecting…';
+        });
+    }
+
+    loadAttendance();
+    loadBusLocations();
+    subscribeRealtime();
+  </script>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enroll & Manage | BusAttend</title>
+  <meta name="description" content="Enroll students and manage bus attendance registrations" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    // Client-side Admin Gateway
+    if (localStorage.getItem('isAdmin') !== 'true') {
+      window.location.replace('login.html');
+    }
+
+    function logout() {
+      localStorage.removeItem('isAdmin');
+      window.location.replace('login.html');
+    }
+  </script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">🚌</div>
+      <span class="logo-text">BusAttend</span>
+    </div>
+    <nav class="nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+      <a href="enroll.html" class="nav-item active"><span class="nav-icon">👤</span><span>Enroll / Manage</span></a>
+    </nav>
+    <div class="sidebar-footer" style="flex-direction:column;align-items:flex-start;gap:1rem">
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <div class="status-dot dot-green"></div>
+        <span>Connected</span>
+      </div>
+      <button class="btn btn-ghost" style="width:100%;padding:0.4rem;font-size:0.75rem" onclick="logout()">🔒 Logout Admin</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="page-header">
+      <div>
+        <h1 class="page-title">Enroll &amp; Manage Students</h1>
+        <p class="page-sub">Register students with their bus and biometric details</p>
+      </div>
+    </header>
+
+    <div class="two-col">
+      <!-- Enroll form -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">➕ Enroll New Student</h2>
+        </div>
+        <p class="card-desc">After submitting, place the student's finger on the sensor. The device enrolls on the next poll cycle (~2 sec).</p>
+        <form id="enrollForm" class="form" onsubmit="enrollUser(event)">
+
+          <div class="form-section-label">Student Details</div>
+
+          <div class="form-group">
+            <label for="enrollName">Full Name</label>
+            <input type="text" id="enrollName" placeholder="e.g. Rahul Sharma" required maxlength="80" />
+          </div>
+
+          <div class="form-group">
+            <label for="enrollUen">UEN Number</label>
+            <input type="text" id="enrollUen" placeholder="e.g. VID2025001" required maxlength="30" />
+            <span class="form-hint">Unique Enrollment Number issued by the institution</span>
+          </div>
+
+          <div class="form-group">
+            <label for="enrollGender">Gender</label>
+            <select id="enrollGender" required>
+              <option value="">— Select —</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-divider"></div>
+          <div class="form-section-label">Bus Details</div>
+
+          <div class="form-group">
+            <label for="enrollBusDriver">Bus Driver Name</label>
+            <input type="text" id="enrollBusDriver" placeholder="e.g. Mr. Kumar" required maxlength="80" />
+          </div>
+
+          <div class="form-group">
+            <label for="enrollBusNumber">Bus Number / Route</label>
+            <input type="text" id="enrollBusNumber" placeholder="e.g. KA-01-B-1234 / Route 7" required maxlength="40" />
+          </div>
+
+          <div class="form-divider"></div>
+          <div class="form-section-label">Fingerprint Slot</div>
+
+          <div class="form-group">
+            <label for="enrollId">Finger ID (1 – 127)</label>
+            <input type="number" id="enrollId" placeholder="e.g. 3" min="1" max="127" required />
+            <span class="form-hint">Each sensor slot stores one fingerprint template.</span>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full" id="enrollBtn">Queue Enrollment</button>
+          <div id="enrollMsg" class="msg-box" style="display:none"></div>
+        </form>
+      </div>
+
+      <!-- Delete form -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">🗑 Remove Student</h2>
+        </div>
+        <p class="card-desc">Queues the selected student for deletion. The device will erase the fingerprint template on the next poll cycle.</p>
+        <form id="deleteForm" class="form" onsubmit="deleteUser(event)">
+          <div class="form-group">
+            <label for="deleteId">Select Student</label>
+            <select id="deleteId" required>
+              <option value="">— Loading… —</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-danger btn-full" id="deleteBtn">Queue Deletion</button>
+          <div id="deleteMsg" class="msg-box" style="display:none"></div>
+        </form>
+
+        <!-- Bus / Driver quick-select helper -->
+        <div style="padding:1rem 1.5rem;border-top:1px solid var(--border)">
+          <div class="card-header" style="padding:0 0 0.75rem;border:none">
+            <h3 style="font-size:0.875rem;font-weight:600;color:var(--text-muted)">🚌 Quick Filter by Bus</h3>
+          </div>
+          <div id="busSummary" style="font-size:0.82rem;color:var(--text-dim)">Loading buses…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Registered students table -->
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-header">
+        <h2 class="card-title">📋 Registered Students</h2>
+        <button class="btn btn-ghost" onclick="loadUsers()">↻ Refresh</button>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Finger ID</th>
+              <th>Name</th>
+              <th>UEN</th>
+              <th>Gender</th>
+              <th>Bus Number</th>
+              <th>Bus Driver</th>
+              <th>Registered On</th>
+              <th>Pending</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    let users = [];
+
+    // Edge Function URL (all writes go here to bypass PostgREST schema cache)
+    const RELAY_URL = 'https://qxczihdefhvoljpjnlss.supabase.co/functions/v1/relay';
+
+    async function callRelay(body) {
+      const res = await fetch(RELAY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res;
+    }
+
+    async function loadUsers() {
+      // Fetch users via Edge Function (correctly returns new columns)
+      let res;
+      try {
+        res = await callRelay({ action: 'users' });
+        users = res.ok ? await res.json() : [];
+      } catch(e) {
+        users = [];
+      }
+
+      // Fallback: try Supabase JS if Edge Function returns error
+      if (!Array.isArray(users)) {
+        const { data } = await window._sb.from('users').select('*').order('finger_id');
+        users = data || [];
+      }
+
+      // Bus summary panel
+      const busMap = {};
+      users.forEach(u => {
+        const key = u.bus_number || '—';
+        if (!busMap[key]) busMap[key] = { driver: u.bus_driver || '—', count: 0 };
+        busMap[key].count++;
+      });
+      const busSummary = document.getElementById('busSummary');
+      busSummary.innerHTML = Object.keys(busMap).length
+        ? Object.entries(busMap).map(([num, info]) =>
+            `<div style="margin-bottom:4px"><span class="badge-id" style="width:auto;padding:0 6px;margin-right:6px">${num}</span>${info.driver} &mdash; <strong>${info.count}</strong> student${info.count !== 1 ? 's' : ''}</div>`
+          ).join('')
+        : 'No buses registered yet.';
+
+      // Delete dropdown
+      const sel = document.getElementById('deleteId');
+      sel.innerHTML = users.length
+        ? users.map(u => `<option value="${u.finger_id}">${u.name} | UEN: ${u.uen_number || '—'} | Bus: ${u.bus_number || '—'} (ID ${u.finger_id})</option>`).join('')
+        : '<option value="">No students registered yet</option>';
+
+      // Pending delete queue
+      const { data: dq } = await window._sb.from('delete_queue').select('finger_id');
+      const delSet = new Set((dq || []).map(r => r.finger_id));
+
+      const tbody = document.getElementById('usersBody');
+      if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No students registered yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = users.map(u => {
+        let badge = delSet.has(u.finger_id) ? '<span class="badge badge-logout">⏳ Delete Queued</span>' : '';
+        return `<tr class="fade-in">
+          <td><span class="badge-id">${u.finger_id}</span></td>
+          <td><strong>${u.name}</strong></td>
+          <td>${u.uen_number || '—'}</td>
+          <td>${u.gender || '—'}</td>
+          <td><span class="badge-id" style="width:auto;padding:0 8px">${u.bus_number || '—'}</span></td>
+          <td>${u.bus_driver || '—'}</td>
+          <td>${new Date(u.created_at).toLocaleDateString('en-IN')}</td>
+          <td>${badge || '<span style="color:var(--text-dim)">—</span>'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function enrollUser(e) {
+      e.preventDefault();
+      const name     = document.getElementById('enrollName').value.trim();
+      const uen      = document.getElementById('enrollUen').value.trim();
+      const gender   = document.getElementById('enrollGender').value;
+      const driver   = document.getElementById('enrollBusDriver').value.trim();
+      const busNum   = document.getElementById('enrollBusNumber').value.trim();
+      const fingerId = parseInt(document.getElementById('enrollId').value);
+      const btn = document.getElementById('enrollBtn');
+      const msg = document.getElementById('enrollMsg');
+      btn.disabled = true; btn.textContent = 'Queuing…';
+
+      // POST to Edge Function — bypasses PostgREST schema cache
+      // Also auto-runs ALTER TABLE migration if columns are missing
+      let success = false, errText = '';
+      try {
+        const res = await callRelay({
+          action: 'enroll',
+          finger_id: fingerId,
+          user_name: name,
+          uen_number: uen,
+          gender,
+          bus_driver: driver,
+          bus_number: busNum,
+        });
+        const json = await res.json();
+        success = json.success === true;
+        errText = json.error || 'Unknown error';
+      } catch(err) {
+        errText = String(err);
+      }
+
+      msg.style.display = 'block';
+      if (!success) {
+        msg.className = 'msg-box msg-error';
+        msg.textContent = '❌ Error: ' + errText;
+      } else {
+        msg.className = 'msg-box msg-success';
+        msg.textContent = `✅ Queued! Ask ${name} to place finger ${fingerId} on the sensor now.`;
+        document.getElementById('enrollForm').reset();
+        loadUsers();
+      }
+      btn.disabled = false; btn.textContent = 'Queue Enrollment';
+    }
+
+    async function deleteUser(e) {
+      e.preventDefault();
+      const fingerId = parseInt(document.getElementById('deleteId').value);
+      const btn = document.getElementById('deleteBtn');
+      const msg = document.getElementById('deleteMsg');
+      btn.disabled = true; btn.textContent = 'Queuing…';
+
+      let success = false, errText = '';
+      try {
+        const res = await callRelay({ action: 'delete_user', finger_id: fingerId });
+        const json = await res.json();
+        success = json.success === true;
+        errText = json.error || 'Unknown error';
+      } catch(err) {
+        errText = String(err);
+      }
+
+      msg.style.display = 'block';
+      if (!success) {
+        msg.className = 'msg-box msg-error';
+        msg.textContent = '❌ Error: ' + errText;
+      } else {
+        msg.className = 'msg-box msg-success';
+        msg.textContent = `✅ Deletion queued. Device will erase finger ID ${fingerId} on next cycle.`;
+        loadUsers();
+      }
+      btn.disabled = false; btn.textContent = 'Queue Deletion';
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>
