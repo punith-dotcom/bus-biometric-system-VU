@@ -35,7 +35,6 @@
         <select id="busFilter" class="filter-select" onchange="applyFilters()">
           <option value="">All Buses</option>
         </select>
-        <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
       </div>
     </header>
 
@@ -81,21 +80,20 @@
           <thead>
             <tr>
               <th>#</th>
+              <th>Bus No.</th>
               <th>Name</th>
               <th>UEN</th>
-              <th>Gender</th>
-              <th>Bus No.</th>
-              <th>Driver</th>
-              <th>Event</th>
-              <th>Date</th>
               <th>Time In</th>
               <th>Time Out</th>
+              <th>Date</th>
               <th>Location</th>
+              <th>Event</th>
+              <th>Driver</th>
             </tr>
           </thead>
           <tbody id="attendanceBody">
             <tr id="emptyRow">
-              <td colspan="11" class="empty-state">No attendance records yet. Waiting for scans…</td>
+              <td colspan="10" class="empty-state">No attendance records yet. Waiting for scans…</td>
             </tr>
           </tbody>
         </table>
@@ -198,7 +196,7 @@
     function renderTable(rows) {
       const tbody = document.getElementById('attendanceBody');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No records. Waiting for scans…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No records. Waiting for scans…</td></tr>';
         return;
       }
       const pairs = buildTimePairs(rows);
@@ -211,16 +209,15 @@
         const isIn = r.event_type === 'time_in';
         return `<tr class="fade-in">
           <td>${i+1}</td>
+          <td><span class="badge-id">${r.bus_number || '—'}</span></td>
           <td><strong>${r.user_name}</strong></td>
           <td><span class="badge-id" style="width:auto;padding:0 8px">${r.uen_number || '—'}</span></td>
-          <td>${r.gender || '—'}</td>
-          <td><span class="badge-id">${r.bus_number || '—'}</span></td>
-          <td>${r.bus_driver || '—'}</td>
-          <td><span class="badge ${isIn ? 'badge-login' : 'badge-logout'}">${isIn ? '🟢 Time In' : '🔴 Time Out'}</span></td>
-          <td>${new Date(r.created_at).toLocaleDateString('en-IN')}</td>
           <td>${fmtTime(p.time_in)}</td>
           <td>${fmtTime(p.time_out)}</td>
+          <td>${new Date(r.created_at).toLocaleDateString('en-IN')}</td>
           <td>${mapLink(p.lat, p.lng)}</td>
+          <td><span class="badge ${isIn ? 'badge-login' : 'badge-logout'}">${isIn ? '🟢 Time In' : '🔴 Time Out'}</span></td>
+          <td>${r.bus_driver || '—'}</td>
         </tr>`;
       }).join('');
     }
@@ -232,21 +229,6 @@
       document.getElementById('statLogouts').textContent = outs;
       document.getElementById('statPresent').textContent = Math.max(0, ins - outs);
       document.getElementById('statTotal').textContent   = rows.length;
-    }
-
-    function exportCSV() {
-      if (!allRows.length) return alert('No data to export.');
-      const hdrs = ['ID','Name','UEN','Gender','Bus No.','Driver','Event','Date','Time','Latitude','Longitude'];
-      const lines = [hdrs.join(','), ...allRows.map(r => {
-        const dt = new Date(r.created_at);
-        return [r.id, r.user_name, r.uen_number, r.gender, r.bus_number, r.bus_driver,
-                r.event_type, dt.toLocaleDateString('en-IN'), dt.toLocaleTimeString('en-IN'),
-                r.latitude || '', r.longitude || ''].join(',');
-      })];
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
-      a.download = `bus_attendance_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
     }
 
     function subscribeRealtime() {
