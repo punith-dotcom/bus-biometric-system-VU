@@ -28,7 +28,6 @@ const char* NOTIFY_PHONE = "+91XXXXXXXXXX";    // <-- replace with admin/parent 
 #include <WiFiClientSecure.h>       // ESP32 SSL/TLS client
 #include <HTTPClient.h>             // ESP32 HTTP client
 #include <HardwareSerial.h>         // ESP32 hardware UART
-#include <TinyGPSPlus.h>            // GPS NEO-7M parsing
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_Fingerprint.h>
@@ -56,17 +55,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // UART instances
 HardwareSerial mySerial(1);     // R307 fingerprint — UART1
-HardwareSerial gpsSerial(2);    // GPS NEO-7M        — UART2
 HardwareSerial simSerial(0);    // SIM800C GSM       — UART0
 
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
-TinyGPSPlus gps;
 
-// GPS globals
+// Location globals
 float  gpsLat    = 0.0;
 float  gpsLng    = 0.0;
 bool   gpsValid  = false;
-ulong  gpsAge    = 0;
+unsigned long lastLocationUpdate = 0;
 
 String postData;
 int FingerID = 0;     
@@ -556,9 +553,7 @@ void setup() {
   Serial.print("Sensor contains "); Serial.print(finger.templateCount); Serial.println(" templates");
   Serial.println("Waiting for valid finger...");
 
-  // GPS NEO-7M — UART2 at 9600 baud
-  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-  Serial.println("GPS NEO-7M initialised on UART2");
+  // No dedicated GPS module used. Using SIM800L for LBS.
 
   // SIM800C GSM — UART0 at 9600 baud
   simSerial.begin(9600, SERIAL_8N1, SIM800_RX_PIN, SIM800_TX_PIN);
@@ -567,16 +562,10 @@ void setup() {
 }
 void loop() {
 
-  // Read GPS — non-blocking, feed every available byte into TinyGPSPlus
-  while (gpsSerial.available()) {
-    if (gps.encode(gpsSerial.read())) {
-      if (gps.location.isValid()) {
-        gpsLat   = gps.location.lat();
-        gpsLng   = gps.location.lng();
-        gpsValid = true;
-        gpsAge   = gps.location.age();
-      }
-    }
+  // Fetch GSM Location every 30 seconds
+  if (millis() - lastLocationUpdate > 30000) {
+    updateGSMLocation();
+    lastLocationUpdate = millis();
   }
 
   // WiFi reconnect
@@ -703,7 +692,44 @@ void initSIM800() {
   simSendCmd("AT");            // Check comms
   simSendCmd("AT+CMGF=1");    // SMS text mode
   simSendCmd("AT+CNMI=1,2,0,0,0"); // New SMS notification
-  Serial.println("SIM800C ready");
+  
+  // Init GPRS for Location extraction
+  simSendCmd("AT+SAPBR=3,1,\"Contype\",\"GPRS\"");
+  simSendCmd("AT+SAPBR=3,1,\"APN\",\"internet\""); // default APN
+  simSendCmd("AT+SAPBR=1,1"); // open bearer
+  
+  Serial.println("SIM800C ready and GPRS initialized");
+}
+
+void updateGSMLocation() {
+  // AT+CIPGSMLOC=1,1 -> response is +CIPGSMLOC: 0,lng,lat,date,time
+  simSerial.println("AT+CIPGSMLOC=1,1");
+  unsigned long timeout = millis();
+  String resp = "";
+  while (millis() - timeout < 5000) {
+    if (simSerial.available()) {
+      char c = simSerial.read();
+      resp += c;
+    }
+    if (resp.indexOf("CIPGSMLOC:") != -1 && resp.indexOf("\r\n", resp.indexOf("CIPGSMLOC:")) != -1) {
+      break; 
+    }
+  }
+  
+  int idx = resp.indexOf("+CIPGSMLOC:");
+  if (idx != -1) {
+    int comma1 = resp.indexOf(',', idx);
+    int comma2 = resp.indexOf(',', comma1 + 1);
+    int comma3 = resp.indexOf(',', comma2 + 1);
+    
+    if (comma1 != -1 && comma2 != -1 && comma3 != -1) {
+      String lngStr = resp.substring(comma1 + 1, comma2);
+      String latStr = resp.substring(comma2 + 1, comma3);
+      gpsLng = lngStr.toFloat();
+      gpsLat = latStr.toFloat();
+      gpsValid = (gpsLat != 0.0 && gpsLng != 0.0);
+    }
+  }
 }
 
 void sendSMS(const char* phone, String message) {
